@@ -196,3 +196,12 @@ video {
         height: auto;
     }
 }
+
+* [Previous CSS unchanged, adding screen button styles] */
+.control-btn.active.screen {
+    background-color: #28A745; /* Green for screen share */
+}
+
+.control-btn.off.screen {
+    background-color: #4A4A4A;
+}

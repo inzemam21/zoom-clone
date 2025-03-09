@@ -6,6 +6,7 @@ let peers = new Map();
 let selfId = Math.random().toString(36).substring(2, 15);
 let username;
 let localStream;
+let isScreenSharing = false;
 
 function startCall(room, user) {
     username = user;
@@ -39,10 +40,7 @@ function startCall(room, user) {
             return;
         }
         console.log('Parsed signal:', signal);
-        if (signal.from === selfId) {
-            console.log('Ignoring own message');
-            return;
-        }
+        if (signal.from === selfId) return;
         handleSignalMessage(signal, room);
     };
 
@@ -175,8 +173,50 @@ function handleStateChange(peerId, state, room) {
     }
 }
 
+async function toggleScreen() {
+    try {
+        if (!isScreenSharing) {
+            // Start screen sharing
+            const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+            const videoTrack = screenStream.getVideoTracks()[0];
+            localStream.getVideoTracks().forEach(track => track.stop()); // Stop camera
+            localStream = screenStream;
+            setLocalStream(localStream, username);
+
+            // Replace track in all peer connections
+            peers.forEach((peer, id) => {
+                if (id !== selfId && peer.peerConnection) {
+                    const sender = peer.peerConnection.getSenders().find(s => s.track?.kind === 'video');
+                    if (sender) sender.replaceTrack(videoTrack);
+                }
+            });
+
+            videoTrack.onended = () => toggleScreen(); // Auto-stop when screen share ends
+        } else {
+            // Stop screen sharing, revert to camera
+            localStream.getTracks().forEach(track => track.stop());
+            const cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            localStream = cameraStream;
+            setLocalStream(localStream, username);
+
+            // Replace track in all peer connections
+            peers.forEach((peer, id) => {
+                if (id !== selfId && peer.peerConnection) {
+                    const sender = peer.peerConnection.getSenders().find(s => s.track?.kind === 'video');
+                    if (sender) sender.replaceTrack(cameraStream.getVideoTracks()[0]);
+                }
+            });
+        }
+        isScreenSharing = !isScreenSharing;
+    } catch (error) {
+        logError('Screen sharing error: ' + error.message);
+        console.error(error);
+    }
+}
+
 function endCall() {
     peers.forEach((peer) => closePeerConnection(peer.peerConnection, peer.localStream));
+    if (localStream) localStream.getTracks().forEach(track => track.stop());
     peers.clear();
     if (socket) socket.close();
     showPreCall();
@@ -186,5 +226,6 @@ setupUI(
     (room, username) => startCall(room, username),
     endCall,
     () => toggleMute(localStream),
-    () => toggleVideo(localStream)
+    () => toggleVideo(localStream),
+    toggleScreen
 );

@@ -1,4 +1,4 @@
-export function setupUI(startCall, endCall, toggleMuteCallback, toggleVideoCallback) {
+export function setupUI(startCall, endCall, toggleMuteCallback, toggleVideoCallback, toggleScreenCallback) {
     const preCall = document.getElementById('preCall');
     const callScreen = document.getElementById('callScreen');
     const joinBtn = document.getElementById('joinButton');
@@ -7,8 +7,10 @@ export function setupUI(startCall, endCall, toggleMuteCallback, toggleVideoCallb
     const usernameInput = document.getElementById('usernameInput');
     const muteBtn = document.getElementById('muteButton');
     const videoBtn = document.getElementById('videoButton');
+    const screenBtn = document.getElementById('screenButton');
     let isMuted = false;
     let isVideoOn = true;
+    let isScreenSharing = false;
 
     joinBtn.addEventListener('click', () => {
         const room = roomInput.value.trim();
@@ -34,6 +36,15 @@ export function setupUI(startCall, endCall, toggleMuteCallback, toggleVideoCallb
         videoBtn.classList.toggle('active', isVideoOn);
         videoBtn.classList.toggle('off', !isVideoOn);
         videoBtn.querySelector('i').className = isVideoOn ? 'fas fa-video' : 'fas fa-video-slash';
+    });
+
+    screenBtn.addEventListener('click', () => {
+        toggleScreenCallback();
+        isScreenSharing = !isScreenSharing;
+        screenBtn.classList.toggle('active', isScreenSharing);
+        screenBtn.classList.toggle('off', !isScreenSharing);
+        screenBtn.classList.toggle('screen', isScreenSharing);
+        screenBtn.querySelector('i').className = isScreenSharing ? 'fas fa-desktop' : 'fas fa-desktop';
     });
 }
 
@@ -73,7 +84,7 @@ export function setLocalStream(stream, username) {
     label.textContent = username || 'You';
     localWrapper.appendChild(videoElement);
     localWrapper.appendChild(label);
-    videoGrid.innerHTML = ''; // Clear to avoid leftovers
+    videoGrid.innerHTML = '';
     videoGrid.appendChild(localWrapper);
 }
 
