@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zoom Clone</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Lato:wght@700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="pre-call" id="preCall">
+        <div class="header">
+            <span class="zoom-logo">Zoom</span>
+        </div>
+        <div class="join-container">
+            <input type="text" id="roomInput" placeholder="Enter Room Name" value="room1">
+            <button id="joinButton">Join</button>
+        </div>
+    </div>
+
+    <div class="call-screen" id="callScreen" style="display: none;">
+        <div class="header">
+            <span class="zoom-logo">Zoom</span>
+            <span id="roomName" class="room-info"></span>
+        </div>
+        <div class="video-grid" id="videoGrid">
+            <div class="video-wrapper">
+                <video id="localVideo" autoplay playsinline muted></video>
+                <span class="video-label">You</span>
+            </div>
+        </div>
+        <div class="controls">
+            <button id="muteButton" class="control-btn" title="Mute/Unmute">
+                <i class="fas fa-microphone"></i>
+            </button>
+            <button id="videoButton" class="control-btn" title="Video On/Off">
+                <i class="fas fa-video"></i>
+            </button>
+            <button id="leaveButton" class="control-btn leave" title="Leave Call">
+                <i class="fas fa-sign-out-alt"></i>
+            </button>
+        </div>
+        <div class="status" id="status">Status: Not connected</div>
+        <div class="log" id="log"></div>
+    </div>
+
+    <script type="module" src="ui.js"></script>
+    <script type="module" src="webrtc.js"></script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
