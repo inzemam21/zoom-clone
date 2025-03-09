@@ -1,105 +1,123 @@
-const joinButton = document.getElementById('joinButton');
-const muteButton = document.getElementById('muteButton');
-const videoButton = document.getElementById('videoButton');
-const leaveButton = document.getElementById('leaveButton');
-const statusDiv = document.getElementById('status');
-const localVideo = document.getElementById('localVideo');
-const logDiv = document.getElementById('log');
-const preCall = document.getElementById('preCall');
-const callScreen = document.getElementById('callScreen');
-const roomInput = document.getElementById('roomInput');
-const roomName = document.getElementById('roomName');
-const videoGrid = document.getElementById('videoGrid');
-let localStream;
+export function setupUI(startCall, endCall, toggleMuteCallback, toggleVideoCallback) {
+    const preCall = document.getElementById('preCall');
+    const callScreen = document.getElementById('callScreen');
+    const joinBtn = document.getElementById('joinButton');
+    const leaveBtn = document.getElementById('leaveButton');
+    const roomInput = document.getElementById('roomInput');
+    const usernameInput = document.getElementById('usernameInput');
+    const muteBtn = document.getElementById('muteButton');
+    const videoBtn = document.getElementById('videoButton');
+    let isMuted = false;
+    let isVideoOn = true;
 
-export function setupUI(startCallCallback, endCallCallback, toggleMuteCallback, toggleVideoCallback) {
-    joinButton.onclick = () => {
+    joinBtn.addEventListener('click', () => {
         const room = roomInput.value.trim();
-        if (!room) {
-            logError('Please enter a room name');
-            return;
+        const username = usernameInput.value.trim() || 'Anonymous';
+        if (room) {
+            startCall(room, username);
         }
-        startCallCallback(room);
-    };
+    });
 
-    muteButton.onclick = () => toggleMuteCallback();
-    videoButton.onclick = () => toggleVideoCallback();
-    leaveButton.onclick = () => endCallCallback();
+    leaveBtn.addEventListener('click', endCall);
+
+    muteBtn.addEventListener('click', () => {
+        toggleMuteCallback();
+        isMuted = !isMuted;
+        muteBtn.classList.toggle('active', !isMuted);
+        muteBtn.classList.toggle('off', isMuted);
+        muteBtn.querySelector('i').className = isMuted ? 'fas fa-microphone-slash' : 'fas fa-microphone';
+    });
+
+    videoBtn.addEventListener('click', () => {
+        toggleVideoCallback();
+        isVideoOn = !isVideoOn;
+        videoBtn.classList.toggle('active', isVideoOn);
+        videoBtn.classList.toggle('off', !isVideoOn);
+        videoBtn.querySelector('i').className = isVideoOn ? 'fas fa-video' : 'fas fa-video-slash';
+    });
 }
 
 export function logError(message) {
-    logDiv.textContent = `Error: ${message}`;
-    console.error(message);
+    const log = document.getElementById('log');
+    log.textContent = `Error: ${message}`;
 }
 
 export function updateStatus(message) {
-    statusDiv.textContent = `Status: ${message}`;
+    document.getElementById('status').textContent = `Status: ${message}`;
 }
 
 export function showCallScreen(room) {
-    preCall.style.display = 'none';
-    callScreen.style.display = 'flex';
-    roomName.textContent = `Room: ${room}`;
+    const preCall = document.getElementById('preCall');
+    const callScreen = document.getElementById('callScreen');
+    preCall.classList.add('hidden');
+    callScreen.classList.add('active');
+    document.getElementById('roomName').textContent = `Room: ${room}`;
 }
 
 export function showPreCall() {
-    preCall.style.display = 'flex';
-    callScreen.style.display = 'none';
-    statusDiv.textContent = 'Status: Not connected';
-    logDiv.textContent = '';
-    while (videoGrid.children.length > 1) {
-        videoGrid.removeChild(videoGrid.lastChild);
-    }
+    document.getElementById('callScreen').classList.remove('active');
+    document.getElementById('preCall').classList.remove('hidden');
 }
 
-export function setLocalStream(stream) {
-    localStream = stream;
-    localVideo.srcObject = stream;
+export function setLocalStream(stream, username) {
+    const videoGrid = document.getElementById('videoGrid');
+    const localWrapper = document.createElement('div');
+    localWrapper.className = 'video-wrapper';
+    const videoElement = document.createElement('video');
+    const label = document.createElement('span');
+    videoElement.srcObject = stream;
+    videoElement.autoplay = true;
+    videoElement.playsInline = true;
+    videoElement.muted = true;
+    label.className = 'video-label';
+    label.textContent = username || 'You';
+    localWrapper.appendChild(videoElement);
+    localWrapper.appendChild(label);
+    videoGrid.innerHTML = ''; // Clear to avoid leftovers
+    videoGrid.appendChild(localWrapper);
 }
 
-export function addRemoteVideo(peerId, stream) {
-    if (!document.getElementById(`video-${peerId}`)) {
-        const remoteVideo = document.createElement('video');
-        remoteVideo.id = `video-${peerId}`;
-        remoteVideo.autoplay = true;
-        remoteVideo.playsinline = true;
-        remoteVideo.srcObject = stream;
-
-        const videoWrapper = document.createElement('div');
-        videoWrapper.className = 'video-wrapper';
-        videoWrapper.id = `wrapper-${peerId}`;
-        videoWrapper.appendChild(remoteVideo);
-
+export function addRemoteVideo(peerId, stream, username) {
+    const videoGrid = document.getElementById('videoGrid');
+    let wrapper = document.getElementById(`video-${peerId}`);
+    if (!wrapper) {
+        wrapper = document.createElement('div');
+        wrapper.id = `video-${peerId}`;
+        wrapper.className = 'video-wrapper';
+        const videoElement = document.createElement('video');
         const label = document.createElement('span');
+        videoElement.srcObject = stream;
+        videoElement.autoplay = true;
+        videoElement.playsInline = true;
         label.className = 'video-label';
-        label.textContent = `Participant (${peerId})`;
-        videoWrapper.appendChild(label);
-
-        videoGrid.appendChild(videoWrapper);
+        label.textContent = username || peerId;
+        wrapper.appendChild(videoElement);
+        wrapper.appendChild(label);
+        videoGrid.appendChild(wrapper);
     }
 }
 
 export function removeRemoteVideo(peerId) {
-    const wrapper = document.getElementById(`wrapper-${peerId}`);
-    if (wrapper) {
-        videoGrid.removeChild(wrapper);
+    const wrapper = document.getElementById(`video-${peerId}`);
+    if (wrapper) wrapper.remove();
+}
+
+export function toggleMute(stream) {
+    if (stream) {
+        const audioTrack = stream.getAudioTracks()[0];
+        if (audioTrack) {
+            audioTrack.enabled = !audioTrack.enabled;
+            console.log('Audio muted:', !audioTrack.enabled);
+        }
     }
 }
 
-export function toggleMute() {
-    if (localStream) {
-        const audioTrack = localStream.getAudioTracks()[0];
-        audioTrack.enabled = !audioTrack.enabled;
-        muteButton.classList.toggle('off', !audioTrack.enabled);
-        muteButton.classList.toggle('active', audioTrack.enabled);
-    }
-}
-
-export function toggleVideo() {
-    if (localStream) {
-        const videoTrack = localStream.getVideoTracks()[0];
-        videoTrack.enabled = !videoTrack.enabled;
-        videoButton.classList.toggle('off', !videoTrack.enabled);
-        videoButton.classList.toggle('active', videoTrack.enabled);
+export function toggleVideo(stream) {
+    if (stream) {
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+            videoTrack.enabled = !videoTrack.enabled;
+            console.log('Video muted:', !videoTrack.enabled);
+        }
     }
 }

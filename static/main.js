@@ -4,8 +4,11 @@ import { createPeerConnection, initiateOffer, handleSignal, closePeerConnection 
 let socket;
 let peers = new Map();
 let selfId = Math.random().toString(36).substring(2, 15);
+let username;
+let localStream;
 
-function startCall(room) {
+function startCall(room, user) {
+    username = user;
     socket = new WebSocket(`wss://${window.location.hostname}:8080/ws?room=${room}`);
 
     socket.onopen = async () => {
@@ -18,7 +21,8 @@ function startCall(room) {
                 type: 'join',
                 room: room,
                 from: selfId,
-                to: '' // Broadcast to all
+                to: '',
+                username: username
             }));
             console.log('Sent join announcement');
             await broadcastOffers(room);
@@ -55,19 +59,20 @@ function startCall(room) {
 
 async function initiateSelf(room) {
     try {
-        const { peerConnection, localStream } = await createPeerConnection(
+        const { peerConnection, localStream: stream } = await createPeerConnection(
             socket,
             room,
             selfId,
             selfId,
             (peerId, stream) => {
                 console.log('ontrack triggered for', peerId);
-                addRemoteVideo(peerId, stream);
+                addRemoteVideo(peerId, stream, peers.get(peerId)?.username);
             },
             (peerId, state) => handleStateChange(peerId, state, room)
         );
-        peers.set(selfId, { peerConnection: null, localStream });
-        setLocalStream(localStream);
+        localStream = stream;
+        peers.set(selfId, { peerConnection: null, localStream, username });
+        setLocalStream(localStream, username);
         updateStatus('Connected');
         console.log('Self initialized, peers:', peers.size);
     } catch (error) {
@@ -85,6 +90,11 @@ async function handleSignalMessage(signal, room) {
         if (!peers.has(signal.from)) {
             await addPeer(signal.from, room);
         }
+        peers.set(signal.from, { ...peers.get(signal.from), username: signal.username });
+        const wrapper = document.getElementById(`video-${signal.from}`);
+        if (wrapper && signal.username) {
+            wrapper.querySelector('.video-label').textContent = signal.username;
+        }
         await broadcastOffers(room);
         return;
     }
@@ -99,11 +109,11 @@ async function handleSignalMessage(signal, room) {
                 selfId,
                 (peerId, stream) => {
                     console.log('ontrack triggered for', peerId);
-                    addRemoteVideo(peerId, stream);
+                    addRemoteVideo(peerId, stream, peers.get(peerId)?.username);
                 },
                 (peerId, state) => handleStateChange(peerId, state, room)
             );
-            peers.set(signal.from, { peerConnection: pc, localStream });
+            peers.set(signal.from, { peerConnection: pc, localStream, username: signal.username });
             peerConnection = pc;
             await handleSignal(signal, peerConnection, socket, room, selfId);
             console.log('Handled offer from', signal.from);
@@ -131,7 +141,7 @@ async function addPeer(peerId, room) {
                 selfId,
                 (peerId, stream) => {
                     console.log('ontrack triggered for', peerId);
-                    addRemoteVideo(peerId, stream);
+                    addRemoteVideo(peerId, stream, peers.get(peerId)?.username);
                 },
                 (peerId, state) => handleStateChange(peerId, state, room)
             );
@@ -173,8 +183,8 @@ function endCall() {
 }
 
 setupUI(
-    (room) => startCall(room),
+    (room, username) => startCall(room, username),
     endCall,
-    toggleMute,
-    toggleVideo
+    () => toggleMute(localStream),
+    () => toggleVideo(localStream)
 );
