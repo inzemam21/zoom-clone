@@ -10,14 +10,24 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true }, // Allow all origins for testing
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
-var clients = make(map[*websocket.Conn]bool)
+
+type Client struct {
+	conn *websocket.Conn
+	room string
+	id   string // Will use 'from' from frontend
+}
+
+var clients = make(map[string]*Client) // Key by client ID (from frontend)
 var mutex = sync.Mutex{}
 
 type Signal struct {
 	Type string `json:"type"`
 	Data string `json:"data"`
+	Room string `json:"room"`
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 func signalingHandler(w http.ResponseWriter, r *http.Request) {
@@ -28,21 +38,29 @@ func signalingHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	mutex.Lock()
-	clients[conn] = true
-	mutex.Unlock()
-	defer func() {
-		mutex.Lock()
-		delete(clients, conn)
-		mutex.Unlock()
-	}()
+	room := r.URL.Query().Get("room")
+	if room == "" {
+		log.Println("No room specified")
+		return
+	}
 
-	log.Printf("Client connected. Total clients: %d", len(clients))
+	// Client ID set later via first message
+	client := &Client{conn: conn, room: room}
+	var clientId string
+
+	defer func() {
+		if clientId != "" {
+			mutex.Lock()
+			delete(clients, clientId)
+			mutex.Unlock()
+			log.Printf("Client %s disconnected from room %s. Total clients: %d", clientId, room, len(clients))
+		}
+	}()
 
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
-			log.Println("Read error:", err)
+			log.Println("Read error for", clientId, ":", err)
 			return
 		}
 
@@ -52,17 +70,33 @@ func signalingHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		// Set client ID on first message
+		if clientId == "" {
+			clientId = signal.From
+			client.id = clientId
+			mutex.Lock()
+			clients[clientId] = client
+			mutex.Unlock()
+			log.Printf("Client %s connected to room %s. Total clients: %d", clientId, room, len(clients))
+		}
+
+		log.Printf("Received from %s in room %s: %s", clientId, room, string(msg))
+
 		mutex.Lock()
-		for client := range clients {
-			if client != conn {
-				err = client.WriteMessage(websocket.TextMessage, msg)
-				if err != nil {
-					log.Println("Write error:", err)
+		for id, c := range clients {
+			if c.room == room && id != clientId {
+				// Send to all if 'to' is empty, or to specific client if 'to' matches
+				if signal.To == "" || signal.To == id {
+					err = c.conn.WriteMessage(websocket.TextMessage, msg)
+					if err != nil {
+						log.Println("Write error to", id, ":", err)
+					} else {
+						log.Printf("Sent to %s in room %s: %s", id, room, string(msg))
+					}
 				}
 			}
 		}
 		mutex.Unlock()
-		log.Printf("Broadcasted: %s", msg)
 	}
 }
 

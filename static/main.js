@@ -1,29 +1,51 @@
-// Main entry point and coordination
 import { setupUI, logError, updateStatus, showCallScreen, showPreCall, setLocalStream, addRemoteVideo, removeRemoteVideo, toggleMute, toggleVideo } from './ui.js';
-import { initiateCall, handleSignal, closeConnection } from './webrtc.js';
+import { createPeerConnection, initiateOffer, handleSignal, closePeerConnection } from './webrtc.js';
 
-let peerConnection;
-let localStream;
 let socket;
-let remoteVideoExists = false;
+let peers = new Map();
+let selfId = Math.random().toString(36).substring(2, 15);
 
 function startCall(room) {
-    socket = new WebSocket(`wss://${window.location.hostname}:8080/ws`);
+    socket = new WebSocket(`wss://${window.location.hostname}:8080/ws?room=${room}`);
 
-    socket.onopen = () => {
-        console.log('WebSocket connected');
+    socket.onopen = async () => {
+        console.log('WebSocket connected, selfId:', selfId);
         updateStatus('WebSocket connected');
         showCallScreen(room);
-        initiateCallHandler();
+        await initiateSelf(room);
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'join',
+                room: room,
+                from: selfId,
+                to: '' // Broadcast to all
+            }));
+            console.log('Sent join announcement');
+            await broadcastOffers(room);
+        }
     };
 
     socket.onmessage = (event) => {
-        console.log('Received:', event.data);
-        const signal = JSON.parse(event.data);
-        handleSignalHandler(signal);
+        console.log('Raw message received:', event.data);
+        let signal;
+        try {
+            signal = JSON.parse(event.data);
+        } catch (error) {
+            console.error('Failed to parse message:', error);
+            return;
+        }
+        console.log('Parsed signal:', signal);
+        if (signal.from === selfId) {
+            console.log('Ignoring own message');
+            return;
+        }
+        handleSignalMessage(signal, room);
     };
 
-    socket.onerror = () => logError('WebSocket error');
+    socket.onerror = (error) => {
+        logError('WebSocket error: ' + error.message);
+        console.error('WebSocket error:', error);
+    };
 
     socket.onclose = () => {
         console.log('WebSocket closed');
@@ -31,70 +53,128 @@ function startCall(room) {
     };
 }
 
-async function initiateCallHandler() {
+async function initiateSelf(room) {
     try {
-        const { peerConnection: pc, localStream: stream } = await initiateCall(
+        const { peerConnection, localStream } = await createPeerConnection(
             socket,
-            (stream) => {
-                if (!remoteVideoExists) {
-                    addRemoteVideo(stream);
-                    remoteVideoExists = true;
-                }
+            room,
+            selfId,
+            selfId,
+            (peerId, stream) => {
+                console.log('ontrack triggered for', peerId);
+                addRemoteVideo(peerId, stream);
             },
-            (state) => {
-                updateStatus(state);
-                if (state === 'disconnected' || state === 'closed') {
-                    removeRemoteVideo();
-                    remoteVideoExists = false;
-                }
-            }
+            (peerId, state) => handleStateChange(peerId, state, room)
         );
-        peerConnection = pc;
-        localStream = stream;
-        setLocalStream(stream);
+        peers.set(selfId, { peerConnection: null, localStream });
+        setLocalStream(localStream);
+        updateStatus('Connected');
+        console.log('Self initialized, peers:', peers.size);
     } catch (error) {
         logError(error.message);
     }
 }
 
-async function handleSignalHandler(signal) {
-    if (!peerConnection) {
+async function handleSignalMessage(signal, room) {
+    console.log('Handling signal from', signal.from, ':', signal.type);
+    let peer = peers.get(signal.from);
+    let peerConnection = peer?.peerConnection;
+
+    if (signal.type === 'join') {
+        console.log('Peer joined:', signal.from);
+        if (!peers.has(signal.from)) {
+            await addPeer(signal.from, room);
+        }
+        await broadcastOffers(room);
+        return;
+    }
+
+    if (!peer && signal.type === 'offer') {
+        console.log('New peer detected:', signal.from);
         try {
-            const { peerConnection: pc, localStream: stream } = await initiateCall(
+            const { peerConnection: pc, localStream } = await createPeerConnection(
                 socket,
-                (stream) => {
-                    if (!remoteVideoExists) {
-                        addRemoteVideo(stream);
-                        remoteVideoExists = true;
-                    }
+                room,
+                signal.from,
+                selfId,
+                (peerId, stream) => {
+                    console.log('ontrack triggered for', peerId);
+                    addRemoteVideo(peerId, stream);
                 },
-                (state) => {
-                    updateStatus(state);
-                    if (state === 'disconnected' || state === 'closed') {
-                        removeRemoteVideo();
-                        remoteVideoExists = false;
-                    }
-                }
+                (peerId, state) => handleStateChange(peerId, state, room)
             );
+            peers.set(signal.from, { peerConnection: pc, localStream });
             peerConnection = pc;
-            localStream = stream;
-            setLocalStream(stream);
+            await handleSignal(signal, peerConnection, socket, room, selfId);
+            console.log('Handled offer from', signal.from);
         } catch (error) {
             logError(error.message);
-            return;
+        }
+    } else if (peerConnection) {
+        try {
+            await handleSignal(signal, peerConnection, socket, room, selfId);
+            console.log('Handled signal from', signal.from, ':', signal.type);
+        } catch (error) {
+            logError(error.message);
         }
     }
-    await handleSignal(signal, peerConnection, socket);
+}
+
+async function addPeer(peerId, room) {
+    if (!peers.has(peerId)) {
+        console.log('Adding peer:', peerId);
+        try {
+            const { peerConnection: pc, localStream } = await createPeerConnection(
+                socket,
+                room,
+                peerId,
+                selfId,
+                (peerId, stream) => {
+                    console.log('ontrack triggered for', peerId);
+                    addRemoteVideo(peerId, stream);
+                },
+                (peerId, state) => handleStateChange(peerId, state, room)
+            );
+            peers.set(peerId, { peerConnection: pc, localStream });
+            console.log('Peer connection created for', peerId);
+            await initiateOffer(pc, socket, room, peerId, selfId);
+            console.log('Added and offered to peer', peerId);
+        } catch (error) {
+            logError(error.message);
+        }
+    }
+}
+
+async function broadcastOffers(room) {
+    console.log('Broadcasting offers to peers:', peers.size - 1);
+    for (const [id] of peers) {
+        if (id !== selfId && !peers.get(id).peerConnection) {
+            await addPeer(id, room);
+        }
+    }
+}
+
+function handleStateChange(peerId, state, room) {
+    updateStatus(`${peers.size - 1} peers connected`);
+    if (state === 'disconnected' || state === 'closed') {
+        console.log('Peer', peerId, 'disconnected');
+        removeRemoteVideo(peerId);
+        peers.delete(peerId);
+        if (peers.size === 1) updateStatus('Connected (alone)');
+        broadcastOffers(room);
+    }
 }
 
 function endCall() {
-    closeConnection(peerConnection, localStream, socket);
-    peerConnection = null;
-    localStream = null;
-    socket = null;
-    remoteVideoExists = false;
+    peers.forEach((peer) => closePeerConnection(peer.peerConnection, peer.localStream));
+    peers.clear();
+    if (socket) socket.close();
     showPreCall();
 }
 
-// Initialize UI with callbacks
-setupUI(startCall, endCall, toggleMute, toggleVideo);
+setupUI(
+    (room) => startCall(room),
+    endCall,
+    toggleMute,
+    toggleVideo
+);

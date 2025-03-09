@@ -1,4 +1,3 @@
-// UI-related functions and event handlers
 const joinButton = document.getElementById('joinButton');
 const muteButton = document.getElementById('muteButton');
 const videoButton = document.getElementById('videoButton');
@@ -58,29 +57,32 @@ export function setLocalStream(stream) {
     localVideo.srcObject = stream;
 }
 
-export function addRemoteVideo(stream) {
-    const remoteVideo = document.createElement('video');
-    remoteVideo.id = 'remoteVideo';
-    remoteVideo.autoplay = true;
-    remoteVideo.playsinline = true;
-    remoteVideo.srcObject = stream;
+export function addRemoteVideo(peerId, stream) {
+    if (!document.getElementById(`video-${peerId}`)) {
+        const remoteVideo = document.createElement('video');
+        remoteVideo.id = `video-${peerId}`;
+        remoteVideo.autoplay = true;
+        remoteVideo.playsinline = true;
+        remoteVideo.srcObject = stream;
 
-    const videoWrapper = document.createElement('div');
-    videoWrapper.className = 'video-wrapper';
-    videoWrapper.appendChild(remoteVideo);
+        const videoWrapper = document.createElement('div');
+        videoWrapper.className = 'video-wrapper';
+        videoWrapper.id = `wrapper-${peerId}`;
+        videoWrapper.appendChild(remoteVideo);
 
-    const label = document.createElement('span');
-    label.className = 'video-label';
-    label.textContent = 'Participant';
-    videoWrapper.appendChild(label);
+        const label = document.createElement('span');
+        label.className = 'video-label';
+        label.textContent = `Participant (${peerId})`;
+        videoWrapper.appendChild(label);
 
-    videoGrid.appendChild(videoWrapper);
+        videoGrid.appendChild(videoWrapper);
+    }
 }
 
-export function removeRemoteVideo() {
-    const remoteVideo = document.getElementById('remoteVideo');
-    if (remoteVideo && remoteVideo.parentElement) {
-        videoGrid.removeChild(remoteVideo.parentElement);
+export function removeRemoteVideo(peerId) {
+    const wrapper = document.getElementById(`wrapper-${peerId}`);
+    if (wrapper) {
+        videoGrid.removeChild(wrapper);
     }
 }
 
